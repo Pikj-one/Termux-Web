@@ -1,0 +1,8 @@
+{
+  "listenHost": "127.0.0.1",
+  "listenPort": 3001,
+  "allowedRoots": [
+    "/data/data/com.termux/files/home/Web",
+    "/data/data/com.termux/files/home/storage/downloads"
+  ]
+}

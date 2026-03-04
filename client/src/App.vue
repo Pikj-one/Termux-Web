@@ -1,29 +1,43 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 
+const THEME_STORAGE_KEY = 'termux-web-theme'
+
 const currentPath = ref('/data/data/com.termux/files/home/storage/downloads')
-const command = ref('')
 const historyGroup = ref('default')
 const tabs = ref([createTab('终端 1')])
 const activeTabId = ref(tabs.value[0].id)
 const historyItems = ref([])
 const fileItems = ref([])
+const taskItems = ref([])
+const logItems = ref([])
+const selectedLog = ref(null)
+const taskStatusFilter = ref('')
+const logKeyword = ref('')
+const logStatusFilter = ref('')
+const logFrom = ref('')
+const logTo = ref('')
 const loadingFiles = ref(false)
 const loadingHistory = ref(false)
 const loadingRuntime = ref(false)
+const loadingTasks = ref(false)
+const loadingLogs = ref(false)
 const uploading = ref(false)
 const errorText = ref('')
 const outputRef = ref(null)
 const uploadInputRef = ref(null)
+const theme = ref(loadTheme())
 const runtime = ref({
   host: '127.0.0.1',
   port: 3001,
   localhostOnly: true,
   commandMode: 'direct-shell',
+  taskConcurrency: 1,
 })
 
 const statusLabelMap = {
   idle: '空闲',
+  pending: '排队中',
   running: '运行中',
   completed: '已完成',
   failed: '失败',
@@ -38,12 +52,14 @@ const groupLabelMap = {
 
 const pinnedHistoryItems = computed(() => historyItems.value.filter((item) => item.pinned))
 const recentHistoryItems = computed(() => historyItems.value.filter((item) => !item.pinned))
+const activeTab = computed(() => tabs.value.find((tab) => tab.id === activeTabId.value) ?? tabs.value[0])
 const riskMessage = computed(() =>
   runtime.value.localhostOnly
     ? '本机可访问，命令会直接在当前目录执行，请确认后再执行。'
     : '非本机绑定，存在暴露风险，请先停用服务并改回 127.0.0.1。',
 )
-const activeTab = computed(() => tabs.value.find((tab) => tab.id === activeTabId.value) ?? tabs.value[0])
+const runningTaskCount = computed(() => taskItems.value.filter((item) => item.status === 'running').length)
+const pendingTaskCount = computed(() => taskItems.value.filter((item) => item.status === 'pending').length)
 
 function createTab(name) {
   return {
@@ -83,6 +99,33 @@ function closeAllSockets() {
   tabs.value.forEach((tab) => closeSocket(tab))
 }
 
+function loadTheme() {
+  try {
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY)
+    return stored === 'light' ? 'light' : 'dark'
+  } catch {
+    return 'dark'
+  }
+}
+
+function applyTheme(value) {
+  document.documentElement.setAttribute('data-theme', value)
+  document.documentElement.style.colorScheme = value
+}
+
+function setTheme(nextTheme) {
+  theme.value = nextTheme
+}
+
+watch(
+  theme,
+  (value) => {
+    applyTheme(value)
+    window.localStorage.setItem(THEME_STORAGE_KEY, value)
+  },
+  { immediate: true },
+)
+
 async function loadRuntime() {
   loadingRuntime.value = true
 
@@ -99,6 +142,7 @@ async function loadRuntime() {
       port: data.port,
       localhostOnly: data.localhostOnly,
       commandMode: data.commandMode,
+      taskConcurrency: typeof data.taskConcurrency === 'number' ? data.taskConcurrency : 1,
     }
   } catch (error) {
     errorText.value = error instanceof Error ? error.message : '读取运行信息失败'
@@ -126,52 +170,6 @@ async function loadHistory() {
   }
 }
 
-async function togglePin(item) {
-  errorText.value = ''
-
-  try {
-    const response = await fetch('/api/history/pin', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: item.id, pinned: !item.pinned }),
-    })
-
-    const data = await response.json()
-
-    if (!response.ok) {
-      throw new Error(data.message || '收藏更新失败')
-    }
-
-    historyItems.value = historyItems.value
-      .map((entry) => (entry.id === item.id ? { ...entry, pinned: data.pinned } : entry))
-      .sort((left, right) => Number(right.pinned) - Number(left.pinned) || right.createdAt.localeCompare(left.createdAt))
-  } catch (error) {
-    errorText.value = error instanceof Error ? error.message : '收藏更新失败'
-  }
-}
-
-async function updateGroup(item, group) {
-  errorText.value = ''
-
-  try {
-    const response = await fetch('/api/history/group', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: item.id, group }),
-    })
-
-    const data = await response.json()
-
-    if (!response.ok) {
-      throw new Error(data.message || '分组更新失败')
-    }
-
-    historyItems.value = historyItems.value.map((entry) => (entry.id === item.id ? { ...entry, group: data.group } : entry))
-  } catch (error) {
-    errorText.value = error instanceof Error ? error.message : '分组更新失败'
-  }
-}
-
 async function loadFiles(pathValue = currentPath.value) {
   loadingFiles.value = true
   errorText.value = ''
@@ -190,6 +188,64 @@ async function loadFiles(pathValue = currentPath.value) {
     errorText.value = error instanceof Error ? error.message : '读取目录失败'
   } finally {
     loadingFiles.value = false
+  }
+}
+
+async function loadTasks() {
+  loadingTasks.value = true
+
+  try {
+    const query = taskStatusFilter.value ? `?status=${encodeURIComponent(taskStatusFilter.value)}` : ''
+    const response = await fetch(`/api/tasks${query}`)
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(data.message || '读取任务失败')
+    }
+
+    taskItems.value = data.items ?? []
+  } catch (error) {
+    errorText.value = error instanceof Error ? error.message : '读取任务失败'
+  } finally {
+    loadingTasks.value = false
+  }
+}
+
+async function loadLogs() {
+  loadingLogs.value = true
+
+  try {
+    const params = new URLSearchParams()
+
+    if (logKeyword.value.trim()) {
+      params.set('keyword', logKeyword.value.trim())
+    }
+
+    if (logStatusFilter.value) {
+      params.set('status', logStatusFilter.value)
+    }
+
+    if (logFrom.value) {
+      params.set('from', new Date(logFrom.value).toISOString())
+    }
+
+    if (logTo.value) {
+      params.set('to', new Date(logTo.value).toISOString())
+    }
+
+    const suffix = params.toString() ? `?${params.toString()}` : ''
+    const response = await fetch(`/api/logs${suffix}`)
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(data.message || '读取日志失败')
+    }
+
+    logItems.value = data.items ?? []
+  } catch (error) {
+    errorText.value = error instanceof Error ? error.message : '读取日志失败'
+  } finally {
+    loadingLogs.value = false
   }
 }
 
@@ -265,6 +321,8 @@ function connectSocket(tab, id) {
       tab.durationMs = Date.parse(tab.endedAt) - Date.parse(tab.startedAt)
       tab.lines.push({ type: 'system', data: `\n[exit ${payload.exitCode}]\n` })
       closeSocket(tab)
+      void loadTasks()
+      void loadLogs()
     }
   }
 
@@ -313,6 +371,34 @@ async function runCommand() {
   }
 }
 
+async function createBackgroundTask() {
+  const tab = ensureActiveTab()
+  const text = tab.command.trim()
+
+  if (!text) {
+    return
+  }
+
+  errorText.value = ''
+
+  try {
+    const response = await fetch('/api/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: text, cwd: currentPath.value, group: historyGroup.value }),
+    })
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(data.message || '提交后台任务失败')
+    }
+
+    await Promise.all([loadTasks(), loadHistory()])
+  } catch (error) {
+    errorText.value = error instanceof Error ? error.message : '提交后台任务失败'
+  }
+}
+
 async function stopCommand() {
   const tab = ensureActiveTab()
 
@@ -328,7 +414,28 @@ async function stopCommand() {
   }
 }
 
+async function killTask(item) {
+  errorText.value = ''
+
+  const response = await fetch(`/api/tasks/${item.id}/kill`, { method: 'POST' })
+  const data = await response.json()
+
+  if (!response.ok) {
+    errorText.value = data.message || '任务中断失败'
+    return
+  }
+
+  await loadTasks()
+}
+
 function useHistory(item) {
+  const tab = ensureActiveTab()
+  tab.command = item.command
+  currentPath.value = item.cwd
+  historyGroup.value = item.group || 'default'
+}
+
+function useLogCommand(item) {
   const tab = ensureActiveTab()
   tab.command = item.command
   currentPath.value = item.cwd
@@ -363,6 +470,134 @@ function removeTab(tabId) {
   }
 }
 
+async function openSessionInTab(sessionId, preferredName = '回放') {
+  errorText.value = ''
+
+  try {
+    const response = await fetch(`/api/sessions/${sessionId}`)
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(data.message || '会话读取失败')
+    }
+
+    const existed = tabs.value.find((tab) => tab.sessionId === sessionId)
+    const tab = existed ?? createTab(`${preferredName} ${tabs.value.length + 1}`)
+
+    if (!existed) {
+      tabs.value.push(tab)
+    }
+
+    closeSocket(tab)
+    tab.sessionId = data.id
+    tab.command = data.command
+    tab.startedAt = data.startedAt || ''
+    tab.endedAt = data.endedAt || ''
+    tab.durationMs = typeof data.durationMs === 'number' ? data.durationMs : null
+    tab.exitCode = data.exitCode
+    tab.status = data.status
+
+    if (data.status === 'running') {
+      tab.lines = []
+      connectSocket(tab, data.id)
+    } else {
+      tab.lines = (data.events ?? [])
+        .filter((event) => event.type === 'stdout' || event.type === 'stderr')
+        .map((event) => ({ type: event.type, data: event.data }))
+
+      const exitEvent = (data.events ?? []).find((event) => event.type === 'exit')
+      if (exitEvent) {
+        tab.lines.push({ type: 'system', data: `\n[exit ${exitEvent.exitCode}]\n` })
+      }
+    }
+
+    activeTabId.value = tab.id
+  } catch (error) {
+    errorText.value = error instanceof Error ? error.message : '会话读取失败'
+  }
+}
+
+async function jumpToTaskSession(item) {
+  if (!item.sessionId) {
+    return
+  }
+  await openSessionInTab(item.sessionId, '任务')
+}
+
+async function jumpToLogSession(item) {
+  if (!item.sessionId) {
+    return
+  }
+  await openSessionInTab(item.sessionId, '日志')
+}
+
+async function showLogDetail(item) {
+  errorText.value = ''
+
+  try {
+    const response = await fetch(`/api/logs/${item.id}`)
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(data.message || '日志详情读取失败')
+    }
+
+    selectedLog.value = data
+  } catch (error) {
+    errorText.value = error instanceof Error ? error.message : '日志详情读取失败'
+  }
+}
+
+function exportLog(item, format) {
+  window.open(`/api/logs/${item.id}/export?format=${format}`, '_blank')
+}
+
+async function togglePin(item) {
+  errorText.value = ''
+
+  try {
+    const response = await fetch('/api/history/pin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: item.id, pinned: !item.pinned }),
+    })
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(data.message || '收藏更新失败')
+    }
+
+    historyItems.value = historyItems.value
+      .map((entry) => (entry.id === item.id ? { ...entry, pinned: data.pinned } : entry))
+      .sort((left, right) => Number(right.pinned) - Number(left.pinned) || right.createdAt.localeCompare(left.createdAt))
+  } catch (error) {
+    errorText.value = error instanceof Error ? error.message : '收藏更新失败'
+  }
+}
+
+async function updateGroup(item, group) {
+  errorText.value = ''
+
+  try {
+    const response = await fetch('/api/history/group', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: item.id, group }),
+    })
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(data.message || '分组更新失败')
+    }
+
+    historyItems.value = historyItems.value.map((entry) => (entry.id === item.id ? { ...entry, group: data.group } : entry))
+  } catch (error) {
+    errorText.value = error instanceof Error ? error.message : '分组更新失败'
+  }
+}
+
 function formatDateTime(value) {
   if (!value) {
     return '--'
@@ -392,21 +627,36 @@ watch(
   { deep: true },
 )
 
+const taskTimer = setInterval(() => {
+  void loadTasks()
+}, 2000)
+
 onBeforeUnmount(() => {
   closeAllSockets()
+  clearInterval(taskTimer)
 })
 
 loadRuntime()
 loadHistory()
 loadFiles(currentPath.value)
+loadTasks()
+loadLogs()
 </script>
 
 <template>
   <main class="layout">
     <header class="panel">
-      <h1>Termux Web</h1>
-      <p class="sub">本机访问 · {{ runtime.host }}:{{ runtime.port }}</p>
-      <p class="muted">执行模式：{{ runtime.commandMode }}</p>
+      <div class="section-head">
+        <div>
+          <h1>Termux Web</h1>
+          <p class="sub">本机访问 · {{ runtime.host }}:{{ runtime.port }}</p>
+          <p class="muted">执行模式：{{ runtime.commandMode }} · 并发：{{ runtime.taskConcurrency }}</p>
+        </div>
+        <div class="row tight-row theme-toggle">
+          <button class="action-btn" :disabled="theme === 'dark'" @click="setTheme('dark')">深色</button>
+          <button class="action-btn" :disabled="theme === 'light'" @click="setTheme('light')">浅色</button>
+        </div>
+      </div>
     </header>
 
     <section class="panel risk-panel" :class="runtime.localhostOnly ? 'risk-safe' : 'risk-danger'">
@@ -463,6 +713,7 @@ loadFiles(currentPath.value)
       <textarea v-model="activeTab.command" rows="3" placeholder="输入命令，如: pwd 或 ls -la"></textarea>
       <div class="row wrap">
         <button @click="runCommand" :disabled="activeTab.status === 'running'">执行</button>
+        <button @click="createBackgroundTask">提交后台</button>
         <button @click="stopCommand" :disabled="activeTab.status !== 'running'">中断</button>
         <button @click="loadHistory">刷新历史</button>
         <select v-model="historyGroup" class="group-select">
@@ -487,6 +738,95 @@ loadFiles(currentPath.value)
       <pre ref="outputRef">
 <code v-for="(line, index) in activeTab.lines" :key="index" :class="line.type">{{ line.data }}</code>
       </pre>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>后台任务</h2>
+        <small class="muted">
+          {{ loadingTasks ? '刷新中...' : `运行 ${runningTaskCount} · 排队 ${pendingTaskCount}` }}
+        </small>
+      </div>
+      <div class="row wrap">
+        <select v-model="taskStatusFilter" class="group-select" @change="loadTasks">
+          <option value="">全部状态</option>
+          <option value="pending">排队中</option>
+          <option value="running">运行中</option>
+          <option value="completed">已完成</option>
+          <option value="failed">失败</option>
+          <option value="terminated">已中断</option>
+        </select>
+        <button class="action-btn" @click="loadTasks">刷新任务</button>
+      </div>
+      <ul class="list compact-list">
+        <li v-for="item in taskItems" :key="item.id">
+          <div class="history-meta">
+            <strong>{{ item.command }}</strong>
+            <small class="history-path">{{ item.cwd }} · {{ groupLabelMap[item.group || 'default'] }}</small>
+            <small class="history-path">
+              {{ statusLabelMap[item.status] }} · 耗时 {{ formatDuration(item.durationMs) }} · 退出码 {{ item.exitCode ?? '--' }}
+            </small>
+            <small class="history-path">任务 {{ item.id }} · 会话 {{ item.sessionId || '--' }}</small>
+          </div>
+          <div class="row tight-row">
+            <button class="action-btn" :disabled="!item.sessionId" @click="jumpToTaskSession(item)">查看输出</button>
+            <button class="action-btn" :disabled="item.status !== 'running' && item.status !== 'pending'" @click="killTask(item)">
+              中断
+            </button>
+          </div>
+        </li>
+      </ul>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>日志检索与导出</h2>
+        <small class="muted">{{ loadingLogs ? '检索中...' : `${logItems.length} 条` }}</small>
+      </div>
+      <div class="row wrap">
+        <input v-model="logKeyword" placeholder="关键字（命令/目录/输出）" />
+        <select v-model="logStatusFilter" class="group-select">
+          <option value="">全部状态</option>
+          <option value="running">运行中</option>
+          <option value="completed">已完成</option>
+          <option value="failed">失败</option>
+          <option value="terminated">已中断</option>
+        </select>
+      </div>
+      <div class="row wrap">
+        <input v-model="logFrom" type="datetime-local" />
+        <input v-model="logTo" type="datetime-local" />
+        <button class="action-btn" @click="loadLogs">检索</button>
+      </div>
+
+      <ul class="list compact-list">
+        <li v-for="item in logItems" :key="item.id">
+          <div class="history-meta">
+            <strong>{{ item.command }}</strong>
+            <small class="history-path">
+              {{ statusLabelMap[item.status] }} · {{ formatDateTime(item.startedAt) }} · {{ formatDuration(item.durationMs) }}
+            </small>
+            <small class="history-path">日志 {{ item.id }} · 会话 {{ item.sessionId }}</small>
+          </div>
+          <div class="row tight-row wrap">
+            <button class="action-btn" @click="showLogDetail(item)">详情</button>
+            <button class="action-btn" @click="useLogCommand(item)">填充命令</button>
+            <button class="action-btn" @click="jumpToLogSession(item)">跳转输出</button>
+            <button class="action-btn" @click="exportLog(item, 'txt')">导出 txt</button>
+            <button class="action-btn" @click="exportLog(item, 'json')">导出 json</button>
+          </div>
+        </li>
+      </ul>
+
+      <div v-if="selectedLog" class="log-detail">
+        <h3>日志详情</h3>
+        <p class="muted">命令：{{ selectedLog.command }}</p>
+        <p class="muted">目录：{{ selectedLog.cwd }}</p>
+        <p class="muted">状态：{{ statusLabelMap[selectedLog.status] }}</p>
+        <pre>
+<code v-for="(event, index) in selectedLog.events" :key="index" :class="event.type">{{ event.type === 'exit' ? `[${event.createdAt}] exit ${event.exitCode}` : `[${event.createdAt}] ${event.type}\n${event.data}` }}</code>
+        </pre>
+      </div>
     </section>
 
     <section class="panel">
@@ -534,6 +874,13 @@ loadFiles(currentPath.value)
           </div>
         </li>
       </ul>
+    </section>
+
+    <section class="quick-actions">
+      <button @click="runCommand" :disabled="activeTab.status === 'running'">执行</button>
+      <button @click="stopCommand" :disabled="activeTab.status !== 'running'">中断</button>
+      <button @click="addTab">新建标签</button>
+      <button @click="loadFiles(currentPath)">刷新目录</button>
     </section>
   </main>
 </template>

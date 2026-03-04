@@ -1,0 +1,199 @@
+:root {
+  color-scheme: dark;
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #0f1117;
+  color: #e7ecf3;
+}
+
+.layout {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  max-width: 920px;
+  margin: 0 auto;
+}
+
+.panel {
+  background: #171b24;
+  border: 1px solid #2a3242;
+  border-radius: 10px;
+  padding: 12px;
+}
+
+h1,
+h2 {
+  margin: 0;
+}
+
+.sub,
+.muted {
+  color: #9aa7bd;
+}
+
+label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+input,
+textarea {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid #2f394c;
+  background: #0f131b;
+  color: #e7ecf3;
+  padding: 10px;
+}
+
+textarea {
+  resize: vertical;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.wrap {
+  flex-wrap: wrap;
+}
+
+button {
+  border: 1px solid #38508f;
+  background: #2a3e73;
+  color: #eaf0ff;
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+button:disabled {
+  opacity: 0.5;
+}
+
+.list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  display: grid;
+  gap: 8px;
+}
+
+.list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background: #101520;
+  border-radius: 8px;
+}
+
+.compact-list li {
+  align-items: flex-start;
+}
+
+.item-name {
+  overflow-wrap: anywhere;
+}
+
+.link {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: #8cb0ff;
+  overflow-wrap: anywhere;
+}
+
+.history-meta {
+  min-width: 0;
+  flex: 1;
+}
+
+.history-path {
+  display: block;
+  color: #8290a6;
+  overflow-wrap: anywhere;
+}
+
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.action-btn {
+  white-space: nowrap;
+}
+
+.risk-panel {
+  border-width: 1px;
+}
+
+.risk-safe {
+  border-color: #2b6c4d;
+  background: #14281f;
+}
+
+.risk-danger {
+  border-color: #7a3434;
+  background: #301818;
+}
+
+.output pre {
+  margin: 0;
+  background: #090c12;
+  border-radius: 8px;
+  border: 1px solid #222b3d;
+  padding: 10px;
+  max-height: 280px;
+  overflow: auto;
+}
+
+code {
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+code.stderr {
+  color: #ff8b8b;
+}
+
+code.system {
+  color: #95c4ff;
+}
+
+.error {
+  color: #ff8b8b;
+}
+
+@media (max-width: 640px) {
+  .layout {
+    padding: 10px;
+  }
+
+  .panel {
+    padding: 10px;
+  }
+
+  button {
+    width: 100%;
+  }
+
+  .action-btn {
+    width: auto;
+  }
+}

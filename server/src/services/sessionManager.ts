@@ -13,6 +13,8 @@ export type SessionSummary = {
   command: string
   cwd: string
   startedAt: string
+  endedAt: string | null
+  durationMs: number | null
   status: SessionStatus
   exitCode: number | null
   events: SessionEvent[]
@@ -32,6 +34,7 @@ export class SessionManager {
       cwd,
       env: process.env,
       stdio: 'pipe',
+      detached: true,
     })
 
     const sessionId = randomUUID()
@@ -40,6 +43,8 @@ export class SessionManager {
       command,
       cwd,
       startedAt: new Date().toISOString(),
+      endedAt: null,
+      durationMs: null,
       status: 'running',
       exitCode: null,
       events: [],
@@ -69,10 +74,12 @@ export class SessionManager {
     childProcess.on('close', (exitCode) => {
       session.exitCode = exitCode
       session.status = session.killRequested ? 'terminated' : exitCode === 0 ? 'completed' : 'failed'
+      session.endedAt = new Date().toISOString()
+      session.durationMs = Date.parse(session.endedAt) - Date.parse(session.startedAt)
       this.publish(sessionId, {
         type: 'exit',
         exitCode,
-        createdAt: new Date().toISOString(),
+        createdAt: session.endedAt,
       })
     })
 
@@ -92,7 +99,27 @@ export class SessionManager {
     }
 
     session.killRequested = true
-    session.process.kill('SIGINT')
+
+    try {
+      process.kill(-session.process.pid!, 'SIGTERM')
+    } catch {
+      session.process.kill('SIGTERM')
+    }
+
+    setTimeout(() => {
+      const current = this.sessions.get(sessionId)
+
+      if (!current || current.status !== 'running') {
+        return
+      }
+
+      try {
+        process.kill(-current.process.pid!, 'SIGKILL')
+      } catch {
+        current.process.kill('SIGKILL')
+      }
+    }, 500)
+
     return true
   }
 
@@ -133,6 +160,8 @@ export class SessionManager {
       command: session.command,
       cwd: session.cwd,
       startedAt: session.startedAt,
+      endedAt: session.endedAt,
+      durationMs: session.durationMs,
       status: session.status,
       exitCode: session.exitCode,
       events: [...session.events],

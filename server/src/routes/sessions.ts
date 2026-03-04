@@ -1,5 +1,5 @@
 import type { Express, Request, Response } from 'express'
-import { HistoryStore } from '../services/historyStore.js'
+import { HistoryStore, type HistoryGroup } from '../services/historyStore.js'
 import { SessionManager } from '../services/sessionManager.js'
 import { resolveAllowedPath } from '../utils/paths.js'
 
@@ -26,8 +26,9 @@ export function registerSessionRoutes(
         fallbackRoot,
       )
 
+      const group = parseGroup(request.body?.group)
       const session = sessionManager.create(command, cwd)
-      await historyStore.add(command, cwd)
+      await historyStore.add(command, cwd, group ?? 'default')
       response.status(201).json({ sessionId: session.id })
     } catch (error) {
       response.status(400).json({
@@ -57,4 +58,12 @@ export function registerSessionRoutes(
 
     response.status(202).json({ ok: true })
   })
+}
+
+function parseGroup(value: unknown): HistoryGroup | null {
+  if (value === 'default' || value === 'system' || value === 'custom') {
+    return value
+  }
+
+  return null
 }

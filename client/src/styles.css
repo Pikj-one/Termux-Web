@@ -45,7 +45,8 @@ label {
 }
 
 input,
-textarea {
+textarea,
+select {
   width: 100%;
   border-radius: 8px;
   border: 1px solid #2f394c;
@@ -62,6 +63,10 @@ textarea {
   display: flex;
   gap: 8px;
   margin-top: 8px;
+}
+
+.tight-row {
+  margin-top: 0;
 }
 
 .wrap {
@@ -138,6 +143,50 @@ button:disabled {
   white-space: nowrap;
 }
 
+.group-select {
+  min-width: 90px;
+  width: auto;
+  padding: 6px 8px;
+}
+
+.hidden-input {
+  display: none;
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #1b2742;
+  border-color: #3a4f83;
+}
+
+.tab-btn.active {
+  background: #2a3e73;
+  border-color: #5f7fca;
+}
+
+.tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #11192a;
+  cursor: pointer;
+}
+
+.status-failed {
+  color: #ff8b8b;
+}
+
 .risk-panel {
   border-width: 1px;
 }
@@ -195,5 +244,10 @@ code.system {
 
   .action-btn {
     width: auto;
+  }
+
+  .tab-btn {
+    width: 100%;
+    justify-content: space-between;
   }
 }
